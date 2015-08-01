@@ -6,9 +6,15 @@ using UnityEditor;
 public class Helper {
 
     [MenuItem("Assets/Create/TileFactory")]
-    public static void CreateAsset()
+    public static void CreateTileFactoryAsset()
     {
         CreateAsset<TileFactory>();
+    }
+
+    [MenuItem("Assets/Create/Field Factory")]
+    public static void CreateFieldFactoryAsset()
+    {
+        CreateAsset<FieldFactory>();
     }
 
     public static void CreateAsset<T>() where T : ScriptableObject

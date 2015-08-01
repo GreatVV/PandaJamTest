@@ -1,17 +1,44 @@
 ﻿using System;
-using UnityEngine;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UniRx;
+using UnityEngine;
 using UnityEngine.EventSystems;
 
 public class Tile : MonoBehaviour, IPointerDownHandler
 {
-    public string Id;
-
     public ColorType color;
+    public string Id;
     public List<Tile> Neighbours = new List<Tile>();
+
+    public IObservable<Tile> Clicked = new Subject<Tile>();
+
+    public Vector3 Position
+    {
+        get
+        {
+            return transform.localPosition;
+        }
+        set
+        {
+            transform.localPosition = value;
+        }
+    }
+
+    #region IPointerDownHandler Members
+
+    public void OnPointerDown(PointerEventData eventData)
+    {
+        (Clicked as Subject<Tile>).OnNext(this);
+    }
+
+    void OnDestroy()
+    {
+        (Clicked as Subject<Tile>).OnCompleted();
+    }
+
+
+    #endregion
 
     public static List<Tile> GetChain(Tile tile, List<Tile> alreadyInChain = null)
     {
@@ -22,13 +49,16 @@ public class Tile : MonoBehaviour, IPointerDownHandler
 
         if (alreadyInChain == null)
         {
-            alreadyInChain = new List<Tile>()
+            alreadyInChain = new List<Tile>
                              {
                                  tile
                              };
         }
 
-        var newTiles = tile.Neighbours.Except(alreadyInChain).Where(x=>x.color == tile.color || x.color == ColorType.Universal).ToList();
+        var newTiles =
+            tile.Neighbours.Except(alreadyInChain)
+                .Where(x => x.color == tile.color || x.color == ColorType.Universal)
+                .ToList();
         if (newTiles.Any())
         {
             alreadyInChain.AddRange(newTiles);
@@ -42,6 +72,7 @@ public class Tile : MonoBehaviour, IPointerDownHandler
 
     public void GrabNeighbours()
     {
+        Neighbours.Clear();
         var leftPosition = transform.position + Vector3.left;
         var rightPosition = transform.position + Vector3.right;
         var upPosition = transform.position + Vector3.up;
@@ -58,31 +89,17 @@ public class Tile : MonoBehaviour, IPointerDownHandler
             var colliders = Physics.OverlapSphere(vector3, 0.3f);
             if (colliders.Any())
             {
-                var tiles = colliders.Where(x => x.GetComponent<Tile>() != null).Select(x=>x.GetComponent<Tile>()).Except(Neighbours);
+                var tiles =
+                    colliders.Where(x => x.GetComponent<Tile>() != null)
+                             .Select(x => x.GetComponent<Tile>())
+                             .Except(Neighbours);
                 Neighbours.AddRange(tiles);
             }
         }
     }
 
-
-    void Awake()
+    private void Awake()
     {
         Id = Guid.NewGuid().ToString();
-    }
-   
-
-    public void OnPointerDown(PointerEventData eventData)
-    {
-        Debug.Log("Tile down at " + transform.localPosition + " Id: " + Id);
-        var chain = GetChain(this).ToObservable();
-        Observable.Interval(TimeSpan.FromSeconds(0.1f)).Zip(chain, (n, p) => p).Subscribe(
-                                                                                           x =>
-                                                                                           {
-                                                                                               x.GetComponent<MeshRenderer>()
-                                                                                                   .material.color =
-                                                                                                   Color.black;
-                                                                                           });
-
-
     }
 }

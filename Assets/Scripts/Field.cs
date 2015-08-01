@@ -1,58 +1,130 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using UniRx;
 using UnityEngine;
 
 public class Field : MonoBehaviour
 {
+    public FieldFactory FieldFactory;
     public int Height = 5;
-    public TileFactory TileFactory;
+    private bool isReady;
+    private TileMoveCollection tileMoves = new TileMoveCollection();
     public List<Tile> Tiles;
     public int Width = 10;
 
-    private void Start()
+    public void AddTile(Tile tile, Vector3 position)
     {
-        var tiles = CreatePositions(Width, Height);
-        Observable.Interval(TimeSpan.FromSeconds(0.05f)).Zip(tiles, (n, p) => p).Do(
-                                                                                   x =>
-                                                                                   {
-                                                                                       var tile = TileFactory.GetTile();
-                                                                                       tile.transform.SetParent(
-                                                                                                                transform,
-                                                                                                                false);
-                                                                                       Tiles.Add(tile);
-                                                                                       tile.transform.localPosition = x;
-                                                                                   })
-                  .Subscribe(x => Debug.Log(x),
-                             () =>
-                             {
-                                 Debug.Log("Done");
-                                 foreach (var tile in Tiles)
-                                 {
-                                     tile.GrabNeighbours();
-                                 }
-                             });
-
-        transform.position = new Vector2(-Width/2f, -Height/2f);
+        tile.transform.SetParent(transform, false);
+        tile.Clicked.Subscribe
+            (
+             OnTileClicked,
+             error =>
+             {
+             },
+             () =>
+             {
+                 Tiles.Remove(tile);
+             });
+        Tiles.Add(tile);
+        tile.transform.localPosition = position;
     }
 
-    private IObservable<Vector3> CreatePositions(int width, int height)
+    private void Start()
     {
-        return Observable.Create<Vector3>(
-                                          observer =>
-                                          {
-                                              for (var j = 0; j < height; j++)
-                                              {
-                                                  for (var i = 0; i < width; i++)
-                                                  {
+        FieldFactory.CreateField(this, Width, Height).Subscribe
+            (
+             x => Debug.Log(x),
+             () =>
+             {
+                 Debug.Log("Done");
+                 RecalculateTiles();
+                 isReady = true;
+             });
 
-                                                      var pos = new Vector2(i, j);
-                                                      observer.OnNext(pos);
+        transform.position = new Vector2(-Width / 2f, -Height / 2f);
+    }
 
-                                                  }
-                                              }
-                                              observer.OnCompleted();
-                                              return Disposable.Empty;
-                                          });
+    private void RecalculateTiles()
+    {
+        foreach (var tile in Tiles)
+        {
+            tile.GrabNeighbours();
+        }
+    }
+
+    private void OnTileClicked(Tile tile)
+    {
+        if (!isReady)
+        {
+            return;
+        }
+        isReady = false;
+        Debug.Log("Tile down at " + transform.localPosition + " Id: " + tile.Id);
+        var chain = Tile.GetChain(tile);
+        chain.Sort(ByY);
+        Observable.Interval(TimeSpan.FromSeconds(0.1f))
+                  .Zip(chain.ToObservable(), (n, p) => p)
+                  .Do(DestoryTile)
+                  .SelectMany(x => MoveTiles(x, chain))
+                  .Subscribe
+            (
+             x =>
+             {
+             },
+             error =>
+             {
+             },
+             OnAnimationEnd);
+    }
+
+    private void OnAnimationEnd()
+    {
+        tileMoves.Clear();
+        RecalculateTiles();
+        isReady = true;
+    }
+
+    private IObservable<Tile> MoveTiles(Tile x, IEnumerable<Tile> chain)
+    {
+        var tileToMove = Tiles.Except(chain)
+                              .Where(newTile => newTile.Position.x == x.Position.x && newTile.Position.y > x.Position.y);
+        foreach (var tile1 in tileToMove)
+        {
+            tileMoves.MoveTile(tile1, Vector3.down);
+        }
+        return tileMoves.ApplyMoves();
+    }
+
+    private void DestoryTile(Tile tile)
+    {
+        Debug.Log("Remove " + tile.Position);
+        Destroy(tile.gameObject);
+    }
+
+    private int ByY(Tile x, Tile y)
+    {
+        return y.transform.position.y.CompareTo(x.transform.position.y);
+    }
+
+    public void AddRow()
+    {
+        if (!isReady)
+        {
+            return;
+        }
+        isReady = false;
+        foreach (var tile in Tiles)
+        {
+            tileMoves.MoveTile(tile, Vector3.up);
+        }
+
+        for (int i = 0; i < Width; i++)
+        {
+            var tile = FieldFactory.TileFactory.GetTile();
+            AddTile(tile, new Vector3(i, 0));
+        }
+
+        tileMoves.ApplyMoves().Subscribe(x => { }, error => { }, OnAnimationEnd);
     }
 }
