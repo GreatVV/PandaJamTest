@@ -15,6 +15,12 @@ public class TileMove
             (
              observable =>
              {
+                 if (!Tile)
+                 {
+                     observable.OnCompleted();
+                     return Disposable.Empty;
+                 }
+
                  var tween = DOTween.TweensByTarget(Tile.transform);
                  if (tween == null)
                  {

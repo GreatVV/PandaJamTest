@@ -32,6 +32,13 @@ public class Field : MonoBehaviour
 
     private void Start()
     {
+        if (LevelManager.ChosenLevel != null)
+        {
+            var level = LevelManager.ChosenLevel;
+            Width = level.Width;
+            Height = level.Height;
+        }
+
         FieldFactory.CreateField(this, Width, Height).Subscribe
             (
              x => Debug.Log(x),
@@ -63,8 +70,12 @@ public class Field : MonoBehaviour
         Debug.Log("Tile down at " + transform.localPosition + " Id: " + tile.Id);
         var chain = Tile.GetChain(tile);
         chain.Sort(ByY);
+        var specialTiles = chain.Where(x => x.GetComponent<TileAction>()!=null);
+        var applySpecialTiles = specialTiles.Select(x => x.GetComponent<TileAction>().ApplyTiles()).Merge();
+        var tileToDestroy = chain.ToObservable().Concat(applySpecialTiles).Distinct();
+
         Observable.Interval(TimeSpan.FromSeconds(0.1f))
-                  .Zip(chain.ToObservable(), (n, p) => p)
+                  .Zip(tileToDestroy, (n, p) => p)
                   .Do(DestoryTile)
                   .SelectMany(x => MoveTiles(x, chain))
                   .Subscribe
@@ -75,14 +86,45 @@ public class Field : MonoBehaviour
              error =>
              {
              },
-             OnAnimationEnd);
+             AnalyzeField);
     }
 
-    private void OnAnimationEnd()
+    public void AnalyzeField()
     {
-        tileMoves.Clear();
-        RecalculateTiles();
         isReady = true;
+        for (int i = 1; i < Width; i++)
+        {
+            var tiles = Tiles.Where(x => x.Position.x == i);
+            if (!tiles.Any())
+            {
+                var leftTiles = Tiles.Where(x => x.Position.x < i).ToList();
+                if (leftTiles.Any())
+                {
+                    isReady = false;
+                    foreach (var leftTile in leftTiles)
+                    {
+                        tileMoves.MoveTile(leftTile, Vector3.right);
+                    }
+                }
+            }
+        }
+        if (!isReady)
+        {
+            tileMoves.ApplyMoves().Subscribe
+                (
+                 x =>
+                 {
+                 },
+                 error =>
+                 {
+                 },
+                 AnalyzeField);
+        }
+        else
+        {
+            tileMoves.Clear();
+            RecalculateTiles();
+        }
     }
 
     private IObservable<Tile> MoveTiles(Tile x, IEnumerable<Tile> chain)
@@ -125,6 +167,6 @@ public class Field : MonoBehaviour
             AddTile(tile, new Vector3(i, 0));
         }
 
-        tileMoves.ApplyMoves().Subscribe(x => { }, error => { }, OnAnimationEnd);
+        tileMoves.ApplyMoves().Subscribe(x => { }, error => { }, AnalyzeField);
     }
 }
